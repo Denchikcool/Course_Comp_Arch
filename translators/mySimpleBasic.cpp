@@ -5,6 +5,7 @@
 #include<cmath>
 #include<regex>
 #include<map>
+#include <stack>
 using namespace std;
 
 struct variableStruct {
@@ -65,8 +66,8 @@ int OpPrint(string operand, string line) {
 		return -1;
 	}
 	if(!regex_match(operand,CheckValue)){
-		cout << " -> " << line << endl << "Error - incorrect PRINT value.";
-		return -1;
+			cout << " -> " << line << endl << "Error - incorrect PRINT value.";
+			return -1;
 	}
 	int operOperand = FindVariable(oper[1]);
 	resComand.emplace_back(comandSimpleAStruct(curentComand++, "WRITE ", variable[operOperand].addres));
@@ -126,14 +127,200 @@ int OpIf(string operand, string line) {
 	return 0;
 }
 
+void
+parsRPN (char *rpn, string var)
+{
+  int i = 0;
+  int depth = 0;
+  int operand1, operand2;
+  string memoryCounter = "TEMPA";
+  
+  while (rpn[i] != '\0' && rpn[i] != '\n')
+    {
+	  string x = "";
+      x += rpn[i];
+      if ((x[0] >= 'a' && x[0] <= 'z') || (x[0] >= 'A' && x[0] <= 'Z') || (x[0] >= '1' && x[0] <= '9'))
+        {
+		  int operOperand1 = FindVariable(x);
+		  resComand.emplace_back(comandSimpleAStruct(curentComand++, "LOAD ", variable[operOperand1].addres));
+		  int operOperand2 = FindVariable(memoryCounter);
+		  resComand.emplace_back(comandSimpleAStruct(curentComand++, "STORE ", variable[operOperand2].addres));
+          memoryCounter[4]++;
+          depth++;
+        }
+      if (x[0] == '+' || x[0] == '-' || x[0] == '*' || x[0] == '/')
+        {
+          if (depth < 2)
+            {
+              fprintf (stderr,
+                       "Uncorrect LET statement, check your expression.\n");
+              exit (EXIT_FAILURE);
+            }
+          else
+            {
+				string memCounterTemp1 = memoryCounter, memCounterTemp2 = memoryCounter;
+				memCounterTemp1[4] -= 2; 
+				memCounterTemp2[4] -= 1;
+              operand1 = FindVariable (memCounterTemp1);
+              operand2 = FindVariable (memCounterTemp2);
+			  resComand.emplace_back(comandSimpleAStruct(curentComand++, "LOAD ", variable[operand1].addres));
+              switch (x[0])
+                {
+                case '+':
+				  resComand.emplace_back(comandSimpleAStruct(curentComand++, "ADD ", variable[operand2].addres));
+                  break;
+                case '-': // SUB
+				  resComand.emplace_back(comandSimpleAStruct(curentComand++, "SUB ", variable[operand2].addres));
+                  break;
+                case '/': // DIVIDE
+				  resComand.emplace_back(comandSimpleAStruct(curentComand++, "DIVIDE ", variable[operand2].addres));
+                  break;
+                case '*': // MUL
+				  resComand.emplace_back(comandSimpleAStruct(curentComand++, "MUL ", variable[operand2].addres));
+                  break;
+                }
+			  int last = FindVariable(memCounterTemp1);
+			  resComand.emplace_back(comandSimpleAStruct(curentComand++, "STORE ", variable[last].addres));
+              depth--;
+              memoryCounter[4]--;
+            }
+        }
+      i++;
+	  x = "";
+    }
+  if (depth != 1)
+    {
+      fprintf (stderr, "Uncorrect LET statement, check your expression.\n");
+      exit (EXIT_FAILURE);
+    }
+	int final_op = FindVariable ("TEMPA");
+	resComand.emplace_back(comandSimpleAStruct(curentComand++, "LOAD ", variable[final_op].addres));
+  int mainOpOperand = FindVariable(var);
+  resComand.emplace_back(comandSimpleAStruct(curentComand++, "STORE ", variable[mainOpOperand].addres));
+
+}
+
+int
+checkPriority (char sign)
+{
+  switch (sign)
+    {
+    case '*':
+    case '/':
+      return 4;
+    case '+':
+    case '-':
+      return 2;
+    case '(':
+    case ')':
+      return 1;
+    }
+  return 0;
+}
+
+char * translateToRPN (string inf, char *rpn)
+{
+  // Создание корневого узла стека
+  stack<char> st;
+  int i = 0;
+  int j = 0;
+
+  // Пока не достигнут конец строки и не встречен символ новой строки
+  while (inf[i] != '\0' && inf[i] != '\n')
+    {
+      char x = inf[i];
+
+      // Если встречен операнд, добавляем его в выходную строку
+      if ((x >= 'a' && x <= 'z') || (x >= 'A' && x <= 'Z') || (x >= '1' && x <= '9'))
+        {
+          rpn[j] = x;
+          j++;
+        }
+
+      // Если встречена открывающая скобка, добавляем ее в стек
+      else if (x == '(')
+        {
+			st.push(x);
+        }
+
+      // Если встречена закрывающая скобка, извлекаем элементы из стека, пока
+      // не достигнем открывающую скобку и добавляем их в выходную строку
+      else if (x == ')')
+        {
+          while (st.top() != '(')
+            {
+			  char c = st.top();
+			  st.pop();
+              if (c != 0)
+                {
+                  rpn[j] = c;
+                  j++;
+                }
+            }
+          // Извлекаем открывающую скобку из стека
+			st.pop();
+        }
+
+      // Если встречен оператор, извлекаем операторы из стека, пока их
+      // приоритет не станет меньше приоритета текущего оператора, и добавляем
+      // их в выходную строку
+      else if (x == '+' || x == '-' || x == '*' || x == '/')
+        {
+          while (st.size() != 0 && checkPriority (st.top()) >= checkPriority (x))
+            {
+			  char c = st.top();
+			  st.pop();
+              if (c != 0)
+                {
+                  rpn[j] = c;
+                  j++;
+                }
+            }
+          // Добавляем текущий оператор в стек
+		  st.push(x);
+        }
+      i++;
+    }
+
+  // Извлекаем все оставшиеся операторы из стека и добавляем их в выходную
+  // строку
+  while (st.size() != 0)
+    {
+	  char c = st.top();
+	  st.pop();
+      if (c != 0)
+        {
+          rpn[j] = c;
+          j++;
+        }
+    }
+
+  // Проверяем, что выходная строка корректно сформирована
+  for (int k = 0; k < j; k++)
+    {
+      if (rpn[k] == '(' || rpn[k] == ')')
+        {
+          fprintf (stderr, "Check your expression!\n");
+          exit (EXIT_FAILURE);
+        }
+    }
+
+  // Добавляем нуль-терминальный символ в конец выходной строки
+  rpn[j] = '\0';
+
+  while(!st.empty())
+  {
+	st.pop();
+  }
+  return rpn;
+}
+
 int OpLet(string operand, string line) {
 	const std::regex oneParam(R"(([A-Z])\s*=\s*([A-Z]|-?\d+)\s*)");
 	const std::regex twoParam(R"(([A-Z])\s*=\s*([A-Z]|-?\d+)\s*([\+\-\*\/])\s*([A-Z]|-?\d+)\s*)");
+	const std::regex threeParam(R"([A-Z]\s*=\s*(.*))");
 	cmatch oper;
-	if (!regex_match(operand.c_str(), oper, oneParam) && !regex_match(operand.c_str(), oper, twoParam)) {
-		cout << " -> " << line << endl << "Error - incorrect LET command.";
-		return -1;
-	}
+	if (!regex_match(operand.c_str(), oper, oneParam) && !regex_match(operand.c_str(), oper, twoParam) && !regex_match(operand.c_str(), oper, threeParam)) {}
 	if (regex_match(operand, oneParam)) {
 		string op1 = oper[1], op2 = oper[2];
 		if (regex_match(op2, CheckNumber)) {
@@ -180,6 +367,19 @@ int OpLet(string operand, string line) {
 		}
 		int mainOpOperand = FindVariable(mainOp);
 		resComand.emplace_back(comandSimpleAStruct(curentComand++, "STORE ", variable[mainOpOperand].addres));
+	}
+	else
+	{
+		char* reversed = new char[255];
+		string parse = "";
+		string temp = oper[0];
+		string mainOp = "";
+		mainOp += temp[0];
+		for (unsigned int i = 1; i < oper.size(); i++) parse += oper[i];
+		translateToRPN (parse, reversed);
+		parsRPN(reversed, mainOp);
+		free(reversed);
+		parse = "";
 	}
 	return 0;
 }
@@ -304,19 +504,19 @@ int main(int argc, char* arg[]) {
 		OUTPUT << i.pos << " " << i.command << " " << i.operand << endl;
 	}
 	for (int i = variable.size() - 1; i >= 0; i--) {
-		if (!regex_match(variable[i].name, CheckValue)) {
+		if (!regex_match(variable[i].name, CheckValue) && variable[i].name.length()<=4) {
 			OUTPUT << variable[i].addres << " = ";
 			int temp = stoi(variable[i].name);
-			if (i > 0) {
-				if (i < 10) OUTPUT << "+000" << temp << endl;
-				else if (i >= 10 && i < 100) OUTPUT << "+00" << temp << endl;
-				else if (i >= 100 && i < 1000) OUTPUT << "+0" << temp << endl;
+			if (temp > 0) {
+				if (temp < 10) OUTPUT << "+000" << temp << endl;
+				else if (temp >= 10 && temp < 100) OUTPUT << "+00" << temp << endl;
+				else if (temp >= 100 && temp < 1000) OUTPUT << "+0" << temp << endl;
 				else OUTPUT << "+" << temp << endl;
 			}
-			else if (i < 0) {
-				if (i > -10 && i <= -1) OUTPUT << "-000" << temp << endl;
-				else if (i > -100 && i <= -10) OUTPUT << "-00" << temp << endl;
-				else if (i > -1000 && i <= -100) OUTPUT << "-0" << temp << endl;
+			else if (temp < 0) {
+				if (temp > -10 && temp <= -1) OUTPUT << "-000" << temp << endl;
+				else if (temp > -100 && temp <= -10) OUTPUT << "-00" << temp << endl;
+				else if (temp > -1000 && temp <= -100) OUTPUT << "-0" << temp << endl;
 				else OUTPUT << "-" << temp << endl;
 			}
 		}
