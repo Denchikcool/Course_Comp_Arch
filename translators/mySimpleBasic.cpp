@@ -207,7 +207,7 @@ checkPriority (char sign)
     {
     case '*':
     case '/':
-      return 4;
+      return 3;
     case '+':
     case '-':
       return 2;
